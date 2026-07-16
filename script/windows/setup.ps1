@@ -27,15 +27,16 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 Set-Location -LiteralPath $repoRoot
 
 Write-Host "=== 1/4 install-rust ==="
-$rustArgs = @()
-if ($InstallRustup) { $rustArgs += '-InstallRustup' }
+# Hashtable splat so -InstallRustup is a named switch, not a positional string.
+$rustArgs = @{}
+if ($InstallRustup) { $rustArgs['InstallRustup'] = $true }
 & (Join-Path $PSScriptRoot 'install-rust.ps1') @rustArgs
 if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Write-Host ""
 Write-Host "=== 2/4 install-protoc ==="
-$protocArgs = @()
-if ($ForceProtoc) { $protocArgs += '-Force' }
+$protocArgs = @{}
+if ($ForceProtoc) { $protocArgs['Force'] = $true }
 & (Join-Path $PSScriptRoot 'install-protoc.ps1') @protocArgs
 if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 

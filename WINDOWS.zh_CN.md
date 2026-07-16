@@ -116,11 +116,33 @@ cargo clean -p xai-grok-pager-bin
 -C link-arg=/STACK:16777216
 ```
 
+不要把 `-C` 直接传给 `cargo`（`cargo run -C ...` 会报错）。应写入 `$env:RUSTFLAGS`，或用脚本 / 下面的一行命令。
+
+**不用脚本时裸跑 `cargo run`** — 最短（与 `env.ps1` 同效）：
+
+```powershell
+.\script\windows\env.ps1; cargo run -p xai-grok-pager-bin
+```
+
+**与 `env.ps1` + `cargo run` 等价的一行：**
+
+```powershell
+$lld=(rustc --print sysroot).Trim()+'\lib\rustlib\x86_64-pc-windows-msvc\bin\rust-lld.exe'; $env:PROTOC="$env:LOCALAPPDATA\protoc-29.3\bin\protoc.exe"; $env:CARGO_PROFILE_DEV_DEBUG='0'; $env:CARGO_INCREMENTAL='0'; $env:RUSTFLAGS="-C linker=$lld -C force-unwind-tables=yes -C target-feature=+crt-static -C debuginfo=0 -C link-arg=/STACK:16777216"; cargo run -p xai-grok-pager-bin
+```
+
+仅加大栈（protoc/`rust-lld` 已就绪时往往够用，仍建议用上面完整一行）：
+
+```powershell
+$env:RUSTFLAGS="-C link-arg=/STACK:16777216"; cargo run -p xai-grok-pager-bin
+```
+
+若之前已用小栈链接过 exe，设好 `RUSTFLAGS` 后需重新链接一次（`cargo clean -p xai-grok-pager-bin` 再 build/run）。
+
 ---
 
 ## 3. 辅助脚本（推荐）
 
-在仓库根目录 PowerShell：
+在仓库根目录 PowerShell。各脚本详细说明见 [`script/windows/README.md`](script/windows/README.md) · [中文](script/windows/README.zh_CN.md)。
 
 | 脚本 | 作用 |
 |------|------|
@@ -130,8 +152,8 @@ cargo clean -p xai-grok-pager-bin
 | [`script/windows/install-protoc.ps1`](script/windows/install-protoc.ps1) | 下载并安装 `protoc` 29.3 到 `%LOCALAPPDATA%` |
 | [`script/windows/env.ps1`](script/windows/env.ps1) | 为本会话设置 `PROTOC`、`RUSTFLAGS`（rust-lld、无 debuginfo、大栈） |
 | [`script/windows/install-cargo-config.ps1`](script/windows/install-cargo-config.ps1) | 写入用户级 `%USERPROFILE%\.cargo\config.toml`（持久化；勿提交） |
-| [`script/windows/build.ps1`](script/windows/build.ps1) | `cargo build -p xai-grok-pager-bin`（支持 `-Release`） |
-| [`script/windows/run.ps1`](script/windows/run.ps1) | 运行已编译 exe，或用 `-Build` 先构建 |
+| [`script/windows/build.ps1`](script/windows/build.ps1) | `cargo build -p xai-grok-pager-bin`（`-Release`，`-DryRun` / `-dry-run` 环境预检） |
+| [`script/windows/run.ps1`](script/windows/run.ps1) | 默认：`cargo run -p xai-grok-pager-bin`；`-DebugExe` / `-ReleaseExe` 跑已编译 exe |
 | [`script/windows/use-api-key.ps1`](script/windows/use-api-key.ps1) | 本会话指向 api.x.ai，并提示先退出 OAuth 登录 |
 
 示例：
@@ -140,9 +162,12 @@ cargo clean -p xai-grok-pager-bin
 .\script\windows\setup.ps1
 .\script\windows\check-tools.ps1
 .\script\windows\build.ps1
+.\script\windows\build.ps1 -DryRun
 .\script\windows\build.ps1 -Release
 .\script\windows\run.ps1
-.\script\windows\run.ps1 -Build -- --help
+.\script\windows\run.ps1 -- --help
+.\script\windows\run.ps1 -DebugExe
+.\script\windows\run.ps1 -ReleaseExe
 .\script\windows\use-api-key.ps1   # 然后在同一 shell 中 run.ps1
 ```
 
@@ -167,15 +192,18 @@ cargo clean -p xai-grok-pager-bin
 
 ---
 
-## 5. 直接运行已编译二进制
-
-`RUSTFLAGS` 等只影响**编译**；运行 exe 不需要再设链接相关变量：
+## 5. 运行
 
 ```powershell
-.\target\debug\xai-grok-pager.exe
-.\target\debug\xai-grok-pager.exe --help
+# 默认：cargo run（设环境，可能触发编译）
+.\script\windows\run.ps1
 .\script\windows\run.ps1 "fix the bug"
 .\script\windows\run.ps1 -- --cwd D:\some\project
+
+# 只跑已编译 exe（不走 cargo；先用 build.ps1 编好）
+.\script\windows\run.ps1 -DebugExe
+.\script\windows\run.ps1 -ReleaseExe -- --help
+.\target\release\xai-grok-pager.exe
 ```
 
 请在 **Windows Terminal / PowerShell / cmd** 中运行（全屏 TUI）；不要依赖双击 exe。

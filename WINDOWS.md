@@ -116,11 +116,33 @@ Default main-thread stack is too small. Link with a larger stack (e.g. 16MB). `s
 -C link-arg=/STACK:16777216
 ```
 
+Do **not** pass `-C` to `cargo` itself (`cargo run -C ...` fails). Put flags in `$env:RUSTFLAGS`, or use the scripts / one-liners below.
+
+**Bare `cargo run` without scripts** — shortest (same effect as `env.ps1`):
+
+```powershell
+.\script\windows\env.ps1; cargo run -p xai-grok-pager-bin
+```
+
+**One-liner equivalent to `env.ps1` + `cargo run`:**
+
+```powershell
+$lld=(rustc --print sysroot).Trim()+'\lib\rustlib\x86_64-pc-windows-msvc\bin\rust-lld.exe'; $env:PROTOC="$env:LOCALAPPDATA\protoc-29.3\bin\protoc.exe"; $env:CARGO_PROFILE_DEV_DEBUG='0'; $env:CARGO_INCREMENTAL='0'; $env:RUSTFLAGS="-C linker=$lld -C force-unwind-tables=yes -C target-feature=+crt-static -C debuginfo=0 -C link-arg=/STACK:16777216"; cargo run -p xai-grok-pager-bin
+```
+
+Stack-only (often enough if protoc/`rust-lld` are already OK, but prefer the full line above):
+
+```powershell
+$env:RUSTFLAGS="-C link-arg=/STACK:16777216"; cargo run -p xai-grok-pager-bin
+```
+
+If an older small-stack binary is already linked, re-link once after setting `RUSTFLAGS` (`cargo clean -p xai-grok-pager-bin` then build/run again).
+
 ---
 
 ## 3. Helper scripts (recommended)
 
-From the repo root in PowerShell:
+From the repo root in PowerShell. Per-script details: [`script/windows/README.md`](script/windows/README.md) · [中文](script/windows/README.zh_CN.md).
 
 | Script | Purpose |
 |--------|---------|
@@ -130,8 +152,8 @@ From the repo root in PowerShell:
 | [`script/windows/install-protoc.ps1`](script/windows/install-protoc.ps1) | Download/install `protoc` 29.3 under `%LOCALAPPDATA%` |
 | [`script/windows/env.ps1`](script/windows/env.ps1) | Set `PROTOC`, `RUSTFLAGS` (rust-lld, no debuginfo, large stack) for the current session |
 | [`script/windows/install-cargo-config.ps1`](script/windows/install-cargo-config.ps1) | Write user `%USERPROFILE%\.cargo\config.toml` (persistent; not committed) |
-| [`script/windows/build.ps1`](script/windows/build.ps1) | `cargo build -p xai-grok-pager-bin` (supports `-Release`) |
-| [`script/windows/run.ps1`](script/windows/run.ps1) | Run the built exe, or build first with `-Build` |
+| [`script/windows/build.ps1`](script/windows/build.ps1) | `cargo build -p xai-grok-pager-bin` (`-Release`, `-DryRun` / `-dry-run` preflight) |
+| [`script/windows/run.ps1`](script/windows/run.ps1) | Default: `cargo run -p xai-grok-pager-bin`; `-DebugExe` / `-ReleaseExe` run a prebuilt exe |
 | [`script/windows/use-api-key.ps1`](script/windows/use-api-key.ps1) | Point this session at api.x.ai + remind to logout of OAuth |
 
 Examples:
@@ -140,9 +162,12 @@ Examples:
 .\script\windows\setup.ps1
 .\script\windows\check-tools.ps1
 .\script\windows\build.ps1
+.\script\windows\build.ps1 -DryRun
 .\script\windows\build.ps1 -Release
 .\script\windows\run.ps1
-.\script\windows\run.ps1 -Build -- --help
+.\script\windows\run.ps1 -- --help
+.\script\windows\run.ps1 -DebugExe
+.\script\windows\run.ps1 -ReleaseExe
 .\script\windows\use-api-key.ps1   # then run.ps1 in the same shell
 ```
 
@@ -167,15 +192,18 @@ This writes `%USERPROFILE%\.cargo\config.toml` with `rust-lld`, stack size, and 
 
 ---
 
-## 5. Running a prebuilt binary
-
-Linker env vars only affect **compilation**. To run:
+## 5. Running
 
 ```powershell
-.\target\debug\xai-grok-pager.exe
-.\target\debug\xai-grok-pager.exe --help
+# Default: cargo run (sets env, may compile)
+.\script\windows\run.ps1
 .\script\windows\run.ps1 "fix the bug"
 .\script\windows\run.ps1 -- --cwd D:\some\project
+
+# Prebuilt exe only (no cargo; build first with build.ps1)
+.\script\windows\run.ps1 -DebugExe
+.\script\windows\run.ps1 -ReleaseExe -- --help
+.\target\release\xai-grok-pager.exe
 ```
 
 Use **Windows Terminal / PowerShell / cmd** (fullscreen TUI). Do not rely on double-clicking the exe.

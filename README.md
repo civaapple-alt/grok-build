@@ -18,6 +18,7 @@ Protocol (ACP).
 
 [Installing the released binary](#installing-the-released-binary) ·
 [Building from source](#building-from-source) ·
+[Windows (best-effort)](#windows-best-effort) ·
 [Documentation](#documentation) ·
 [Repository layout](#repository-layout) ·
 [Development](#development) ·
@@ -57,8 +58,8 @@ Requirements:
 - **protoc** — proto codegen resolves [`bin/protoc`](bin/protoc) (a
   [dotslash](https://dotslash-cli.com) launcher) or falls back to a `protoc` on
   `PATH` / `$PROTOC`.
-- macOS and Linux are supported build hosts; Windows builds are best-effort
-  and not currently tested from this tree.
+- macOS and Linux are supported build hosts; **Windows builds are best-effort**
+  (see [Windows (best-effort)](#windows-best-effort) below).
 
 ```sh
 cargo run -p xai-grok-pager-bin              # build + launch the TUI
@@ -70,6 +71,35 @@ The binary artifact is named `xai-grok-pager`; official installs ship it as
 `grok`. On first launch it opens your browser to authenticate — see the
 [authentication guide](crates/codegen/xai-grok-pager/docs/user-guide/02-authentication.md).
 
+## Windows (best-effort)
+
+Building on Windows (MSVC) needs extra setup that macOS/Linux usually do not:
+native `protoc`, `rust-lld` (to avoid MSVC PDB `LNK1318`), and a larger main
+thread stack (to avoid `STATUS_STACK_OVERFLOW`). This fork documents that path
+and ships PowerShell helpers.
+
+| Doc | Description |
+|-----|-------------|
+| [`WINDOWS.md`](WINDOWS.md) | English guide: prerequisites, build failures, auth / `XAI_API_KEY`, troubleshooting |
+| [`WINDOWS.zh_CN.md`](WINDOWS.zh_CN.md) | 中文版同一指南 |
+| [`script/windows/README.md`](script/windows/README.md) | Per-script reference (English) |
+| [`script/windows/README.zh_CN.md`](script/windows/README.zh_CN.md) | 各脚本说明（中文） |
+
+Quick start (PowerShell, from repo root):
+
+```powershell
+.\script\windows\setup.ps1 -InstallRustup   # first time; omit -InstallRustup if rustup exists
+.\script\windows\build.ps1 -DryRun          # check env without compiling
+.\script\windows\build.ps1                  # debug → target\debug\xai-grok-pager.exe
+.\script\windows\build.ps1 -Release         # release → target\release\xai-grok-pager.exe
+.\script\windows\run.ps1                    # cargo run -p xai-grok-pager-bin (sets env)
+.\script\windows\run.ps1 -ReleaseExe        # run a prebuilt release exe only
+```
+
+Scripts live under [`script/windows/`](script/windows/): `setup.ps1`,
+`install-rust.ps1`, `install-protoc.ps1`, `env.ps1`, `build.ps1`, `run.ps1`,
+`check-tools.ps1`, `use-api-key.ps1`, and more.
+
 ## Documentation
 
 Full online documentation is available at
@@ -79,6 +109,10 @@ The user guide ships with the pager crate:
 [`crates/codegen/xai-grok-pager/docs/user-guide/`](crates/codegen/xai-grok-pager/docs/user-guide/)
 — getting started, keyboard shortcuts, slash commands, configuration, theming,
 MCP servers, skills, plugins, hooks, headless mode, sandboxing, and more.
+
+Windows source builds: [`WINDOWS.md`](WINDOWS.md) ·
+[`WINDOWS.zh_CN.md`](WINDOWS.zh_CN.md) ·
+[`script/windows/`](script/windows/).
 
 ## Repository layout
 
@@ -91,6 +125,8 @@ MCP servers, skills, plugins, hooks, headless mode, sandboxing, and more.
 | `crates/codegen/xai-grok-workspace` | Host filesystem, VCS, execution, checkpoints |
 | `crates/codegen/...` | The rest of the CLI crate closure (config, MCP, markdown, sandbox, ...) |
 | `crates/common/`, `crates/build/`, `prod/mc/` | Small shared leaf crates pulled in by the closure |
+| `script/windows/` | PowerShell helpers for Windows MSVC build/run ([README](script/windows/README.md) · [中文](script/windows/README.zh_CN.md)) |
+| `WINDOWS.md` / `WINDOWS.zh_CN.md` | Windows best-effort build & run guide (EN / 中文) |
 | `third_party/` | Vendored upstream source (Mermaid diagram stack) — see below |
 
 > [!IMPORTANT]
