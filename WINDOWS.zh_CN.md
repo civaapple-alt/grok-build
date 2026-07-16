@@ -14,11 +14,50 @@
 
 | 依赖 | 说明 |
 |------|------|
-| **Rust** | 由根目录 [`rust-toolchain.toml`](rust-toolchain.toml) 固定版本；`rustup` 首次构建会自动安装 |
-| **MSVC 链接器** | Visual Studio 2022（或 Build Tools）+ “使用 C++ 的桌面开发” |
+| **Rust / rustup** | 由 [`rust-toolchain.toml`](rust-toolchain.toml) 固定 channel（如 `1.92.0` + `rustfmt` / `clippy`） |
+| **MSVC 工具链** | Visual Studio 2022（或 Build Tools）+ “使用 C++ 的桌面开发”（头文件/CRT；链接走 `rust-lld`） |
 | **protoc（Windows 原生）** | 仓库内 [`bin/protoc`](bin/protoc) 是 [dotslash](https://dotslash-cli.com) 启动器，且**当前未声明 Windows 平台**；本机需自行安装 Windows `protoc.exe` |
 
-### 1.1 安装 Windows `protoc`（建议与仓库锁定版本一致：29.3）
+### 1.0 一键准备（Rust + protoc）
+
+```powershell
+# 本机还没有 rustup：
+.\script\windows\setup.ps1 -InstallRustup
+
+# 已有 rustup：
+.\script\windows\setup.ps1
+
+# 同时写入用户级 Cargo 配置（持久化链接参数）：
+.\script\windows\setup.ps1 -CargoConfig
+```
+
+### 1.1 Rust 工具链（`rustup` / `rustc` / `cargo`）
+
+```powershell
+.\script\windows\install-rust.ps1
+# 首次、没有 rustup：
+.\script\windows\install-rust.ps1 -InstallRustup
+
+# 只检查、不安装（可随时重复执行）：
+.\script\windows\check-tools.ps1
+```
+
+等价手动命令：
+
+```powershell
+# 从 https://rustup.rs/ （或 win.rustup.rs）安装 rustup，然后：
+rustup toolchain install 1.92.0          # 与 rust-toolchain.toml 中 channel 一致
+rustup component add rustfmt clippy --toolchain 1.92.0
+rustup toolchain list
+rustup show
+rustc --version
+cargo --version
+rustc --print sysroot                    # 其下应有 rust-lld.exe
+```
+
+进入仓库目录后，rustup 会按 `rust-toolchain.toml` 自动选用固定工具链。
+
+### 1.2 安装 Windows `protoc`（建议与仓库锁定版本一致：29.3）
 
 ```powershell
 .\script\windows\install-protoc.ps1
@@ -46,7 +85,7 @@ $env:PROTOC = "$env:LOCALAPPDATA\protoc-29.3\bin\protoc.exe"
 
 解析顺序（见 `xai-proto-build`）：`$PROTOC` → `bin/protoc` → `PATH` 上的 `protoc`。
 
-### 1.2 本仓库对 Windows 的源码修补
+### 1.3 本仓库对 Windows 的源码修补
 
 `crates/build/xai-proto-build` 在依赖扫描时原先使用 `/dev/stdout`、`/dev/null`（仅 Unix）。本 fork 已改为临时文件，并正确解析 Windows 盘符路径（`C:\...`）下的 makefile 依赖行。没有该修补时，proto codegen 会在 Windows 上失败。
 
@@ -85,17 +124,21 @@ cargo clean -p xai-grok-pager-bin
 
 | 脚本 | 作用 |
 |------|------|
+| [`script/windows/setup.ps1`](script/windows/setup.ps1) | 一键：Rust + protoc（+ 可选 Cargo 配置）+ `check-tools` |
+| [`script/windows/install-rust.ps1`](script/windows/install-rust.ps1) | 安装/校验 rustup 与锁定工具链；打印 `toolchain list` / 版本 |
+| [`script/windows/check-tools.ps1`](script/windows/check-tools.ps1) | 只读检查：rustup、rustc、cargo、rust-lld、protoc、VS |
 | [`script/windows/install-protoc.ps1`](script/windows/install-protoc.ps1) | 下载并安装 `protoc` 29.3 到 `%LOCALAPPDATA%` |
 | [`script/windows/env.ps1`](script/windows/env.ps1) | 为本会话设置 `PROTOC`、`RUSTFLAGS`（rust-lld、无 debuginfo、大栈） |
 | [`script/windows/install-cargo-config.ps1`](script/windows/install-cargo-config.ps1) | 写入用户级 `%USERPROFILE%\.cargo\config.toml`（持久化；勿提交） |
 | [`script/windows/build.ps1`](script/windows/build.ps1) | `cargo build -p xai-grok-pager-bin`（支持 `-Release`） |
-| [`script/windows/run.ps1`](script/windows/run.ps1) | 运行已编译 exe，或用 `-Build` 走 `cargo run` |
+| [`script/windows/run.ps1`](script/windows/run.ps1) | 运行已编译 exe，或用 `-Build` 先构建 |
 | [`script/windows/use-api-key.ps1`](script/windows/use-api-key.ps1) | 本会话指向 api.x.ai，并提示先退出 OAuth 登录 |
 
 示例：
 
 ```powershell
-.\script\windows\install-protoc.ps1
+.\script\windows\setup.ps1
+.\script\windows\check-tools.ps1
 .\script\windows\build.ps1
 .\script\windows\build.ps1 -Release
 .\script\windows\run.ps1
@@ -190,6 +233,8 @@ env_key = "XAI_API_KEY"
 | 现象 | 处理 |
 |------|------|
 | `LNK1318` / PDB LIMIT | 用 `env.ps1` / Cargo 配置启用 rust-lld + `debuginfo=0` |
+| `rustup` / `rustc` 缺失 | `install-rust.ps1 -InstallRustup` 或 `setup.ps1 -InstallRustup` |
+| 工具链版本不对/过旧 | `install-rust.ps1`（按 `rust-toolchain.toml` 安装 channel） |
 | `bin/protoc` … 不是有效的 Win32 应用程序 / `protoc not found` | `install-protoc.ps1` + `$env:PROTOC` |
 | proto build 使用 `/dev/stdout` 失败 | 确认已包含本 fork 对 `xai-proto-build` 的修补 |
 | 启动即栈溢出 `0xC00000FD` | 用 `/STACK:16777216` 重新链接（`env.ps1`） |

@@ -14,11 +14,50 @@ Upstream documents macOS and Linux as supported build hosts; **Windows is best-e
 
 | Dependency | Notes |
 |------------|--------|
-| **Rust** | Pinned by [`rust-toolchain.toml`](rust-toolchain.toml); `rustup` installs it on first build |
-| **MSVC linker** | Visual Studio 2022 (or Build Tools) with “Desktop development with C++” |
+| **Rust / rustup** | Channel pinned by [`rust-toolchain.toml`](rust-toolchain.toml) (e.g. `1.92.0` + `rustfmt` / `clippy`) |
+| **MSVC toolchain** | Visual Studio 2022 (or Build Tools) with “Desktop development with C++” (headers/CRT; linking uses `rust-lld`) |
 | **Native Windows `protoc`** | Repo [`bin/protoc`](bin/protoc) is a [dotslash](https://dotslash-cli.com) launcher and **does not declare a Windows platform**; install a real `protoc.exe` |
 
-### 1.1 Install Windows `protoc` (29.3, matches the repo pin)
+### 1.0 One-shot setup (Rust + protoc)
+
+```powershell
+# If rustup is not installed yet:
+.\script\windows\setup.ps1 -InstallRustup
+
+# If rustup already works:
+.\script\windows\setup.ps1
+
+# Also write user Cargo config (persistent linker flags):
+.\script\windows\setup.ps1 -CargoConfig
+```
+
+### 1.1 Rust toolchain (`rustup` / `rustc` / `cargo`)
+
+```powershell
+.\script\windows\install-rust.ps1
+# first-time machine without rustup:
+.\script\windows\install-rust.ps1 -InstallRustup
+
+# read-only status (safe anytime):
+.\script\windows\check-tools.ps1
+```
+
+Equivalent manual commands:
+
+```powershell
+# Install rustup from https://rustup.rs/  (or win.rustup.rs), then:
+rustup toolchain install 1.92.0          # match rust-toolchain.toml channel
+rustup component add rustfmt clippy --toolchain 1.92.0
+rustup toolchain list
+rustup show
+rustc --version
+cargo --version
+rustc --print sysroot                    # should contain rust-lld.exe under ...\bin\
+```
+
+Entering the repo directory makes rustup auto-select the pinned toolchain via `rust-toolchain.toml`.
+
+### 1.2 Install Windows `protoc` (29.3, matches the repo pin)
 
 ```powershell
 .\script\windows\install-protoc.ps1
@@ -46,7 +85,7 @@ $env:PROTOC = "$env:LOCALAPPDATA\protoc-29.3\bin\protoc.exe"
 
 Resolution order (`xai-proto-build`): `$PROTOC` → `bin/protoc` → `protoc` on `PATH`.
 
-### 1.2 Windows source fix in this tree
+### 1.3 Windows source fix in this tree
 
 `crates/build/xai-proto-build` previously used `/dev/stdout` and `/dev/null` (Unix-only) when scanning proto dependencies. This fork uses temp files and correctly parses makefile dep lines that start with a Windows drive letter (`C:\...`). Without that patch, proto codegen fails on Windows.
 
@@ -85,17 +124,21 @@ From the repo root in PowerShell:
 
 | Script | Purpose |
 |--------|---------|
+| [`script/windows/setup.ps1`](script/windows/setup.ps1) | One-shot: Rust + protoc (+ optional Cargo config) + `check-tools` |
+| [`script/windows/install-rust.ps1`](script/windows/install-rust.ps1) | Install/verify rustup + pinned toolchain; print `toolchain list` / versions |
+| [`script/windows/check-tools.ps1`](script/windows/check-tools.ps1) | Read-only probe: rustup, rustc, cargo, rust-lld, protoc, VS |
 | [`script/windows/install-protoc.ps1`](script/windows/install-protoc.ps1) | Download/install `protoc` 29.3 under `%LOCALAPPDATA%` |
 | [`script/windows/env.ps1`](script/windows/env.ps1) | Set `PROTOC`, `RUSTFLAGS` (rust-lld, no debuginfo, large stack) for the current session |
 | [`script/windows/install-cargo-config.ps1`](script/windows/install-cargo-config.ps1) | Write user `%USERPROFILE%\.cargo\config.toml` (persistent; not committed) |
 | [`script/windows/build.ps1`](script/windows/build.ps1) | `cargo build -p xai-grok-pager-bin` (supports `-Release`) |
-| [`script/windows/run.ps1`](script/windows/run.ps1) | Run the built exe, or `cargo run` with `-Build` |
+| [`script/windows/run.ps1`](script/windows/run.ps1) | Run the built exe, or build first with `-Build` |
 | [`script/windows/use-api-key.ps1`](script/windows/use-api-key.ps1) | Point this session at api.x.ai + remind to logout of OAuth |
 
 Examples:
 
 ```powershell
-.\script\windows\install-protoc.ps1
+.\script\windows\setup.ps1
+.\script\windows\check-tools.ps1
 .\script\windows\build.ps1
 .\script\windows\build.ps1 -Release
 .\script\windows\run.ps1
@@ -191,6 +234,8 @@ More: [Custom Models](crates/codegen/xai-grok-pager/docs/user-guide/11-custom-mo
 | Symptom | Fix |
 |---------|-----|
 | `LNK1318` / PDB LIMIT | Use rust-lld + `debuginfo=0` via `env.ps1` / Cargo config |
+| `rustup` / `rustc` missing | `install-rust.ps1 -InstallRustup` or `setup.ps1 -InstallRustup` |
+| Wrong/old toolchain | `install-rust.ps1` (installs channel from `rust-toolchain.toml`) |
 | `bin/protoc` not a valid Win32 app / `protoc not found` | `install-protoc.ps1` + `$env:PROTOC` |
 | Proto build fails on `/dev/stdout` | Ensure the `xai-proto-build` Windows patch is present |
 | Immediate stack overflow `0xC00000FD` | Relink with `/STACK:16777216` (`env.ps1`) |
