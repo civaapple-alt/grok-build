@@ -30,6 +30,24 @@ fn find_protoc_include_dir(protoc: Option<&Path>) -> Option<PathBuf> {
     }
 }
 
+/// Split a makefile-style dependency line into the prerequisites side.
+///
+/// Format: `target: dep1 dep2 ...`. On Windows, `target` may start with a drive
+/// letter (`C:\...`), so the first colon is not the target separator.
+fn split_makefile_deps_target(line: &str) -> Option<&str> {
+    let bytes = line.as_bytes();
+    let start = if bytes.len() >= 2
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+    {
+        2
+    } else {
+        0
+    };
+    let colon = line[start..].find(':')? + start;
+    Some(&line[colon + 1..])
+}
+
 pub struct XaiProtoBuilder {
     builder: tonic_prost_build::Builder,
     file_descriptor_set_path: Option<PathBuf>,
@@ -113,11 +131,25 @@ impl XaiProtoBuilder {
         }
 
         // Can only process one input file when using --dependency_out=FILE.
+        // Use temp files rather than /dev/stdout + /dev/null so this works on
+        // Windows (those device paths are Unix-only).
         for proto in protos {
+            let dep_file = tempfile::NamedTempFile::new().context("create dependency temp file")?;
+            let desc_file =
+                tempfile::NamedTempFile::new().context("create descriptor-set temp file")?;
+            let dep_path = dep_file.path();
+            let desc_path = desc_file.path();
+
             let mut command = Command::new(protoc.unwrap_or(Path::new("protoc")));
             command
-                .arg("--dependency_out=/dev/stdout")
-                .arg("--descriptor_set_out=/dev/null");
+                .arg(format!(
+                    "--dependency_out={}",
+                    dep_path.to_str().context("dependency path not UTF-8")?
+                ))
+                .arg(format!(
+                    "--descriptor_set_out={}",
+                    desc_path.to_str().context("descriptor path not UTF-8")?
+                ));
 
             // Add protoc's well-known types include directory first (if found).
             // This is needed for Bazel sandboxed builds where protoc and its
@@ -138,27 +170,35 @@ impl XaiProtoBuilder {
             command.stdin(Stdio::null());
             command.stderr(Stdio::inherit());
 
-            let output = command.output().context("protoc command failed")?;
-            if !output.status.success() {
+            let status = command.status().context("protoc command failed")?;
+            if !status.success() {
                 return Err(anyhow::anyhow!("protoc command failed"));
             }
 
-            let output =
-                String::from_utf8(output.stdout).context("protoc command output not UTF-8")?;
+            let output = fs::read_to_string(dep_path).context("read protoc dependency file")?;
 
+            // Makefile dependency format: "output: dep1 dep2 ..." with optional
+            // line continuations ("\"). Output path is the descriptor_set_out we passed.
+            // On Windows the target may be "C:\...\file.pb", so skip a drive-letter
+            // colon when locating the target/prerequisites separator.
             let mut lines = output.lines();
-            let first_line = lines.next().context("protoc command output is empty")?;
-            let prefix = "/dev/null:";
-            let rem = first_line.strip_prefix(prefix).with_context(|| {
-                format!("protoc command output must start with /dev/null: {output:?}")
+            let first_line = lines.next().context("protoc dependency file is empty")?;
+            let rem = split_makefile_deps_target(first_line).with_context(|| {
+                format!("protoc dependency line missing target separator: {first_line:?}")
             })?;
             for line in iter::once(rem).chain(lines) {
                 let line = line.trim();
-                let line = line.strip_suffix("\\").unwrap_or(line);
+                // Strip makefile line-continuation backslash (not Windows path separators).
+                let line = line.strip_suffix('\\').map(str::trim_end).unwrap_or(line);
+                if line.is_empty() {
+                    continue;
+                }
                 // Depending on absolute paths like
                 // /Users/user/homebrew/Cellar/protobuf/29.1/include/google/protobuf/timestamp.proto
                 // is valid, but we want to have output more deterministic.
-                if line.contains("/include/google/protobuf/") {
+                // Also match Windows path separators from system protoc installs.
+                let normalized = line.replace('\\', "/");
+                if normalized.contains("/include/google/protobuf/") {
                     continue;
                 }
 
